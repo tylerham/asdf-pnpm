@@ -9,6 +9,9 @@ if [[ ${ASDF_INSTALL_TYPE:-version} == 'ref' ]]; then
 fi
 
 FALLBACK_REGISTRY='https://registry.npmjs.org/'
+# ASDF_PNPM_NO_FALLBACK=1 never falls back to the public registry, for setups
+# where every download must come through a private mirror.
+NO_FALLBACK="${ASDF_PNPM_NO_FALLBACK:-0}"
 
 REGISTRY="${NPM_CONFIG_REGISTRY:-$FALLBACK_REGISTRY/}"
 if command -v npm 1>/dev/null; then
@@ -47,7 +50,7 @@ download_and_extract_npm() {
   local tmpdir tarball
   tmpdir=$(mktemp -d)
   echo "Downloading pnpm v${ASDF_INSTALL_VERSION} via npm pack (registry ${REGISTRY})"
-  if ! tarball=$(npm pack "pnpm@${ASDF_INSTALL_VERSION}" --pack-destination "$tmpdir" --silent 2>&1); then
+  if ! tarball=$(npm pack "pnpm@${ASDF_INSTALL_VERSION}" --pack-destination "$tmpdir" --loglevel=error 2>&1); then
     echo >&2 "⛔ npm pack failed: $(echo "$tarball" | head -2)"
     rm -rf "$tmpdir"
     return 1
@@ -62,11 +65,12 @@ fi
 
 # Try configured registry first, fall back to default if different and first attempt fails
 if ! download_and_extract "$REGISTRY" 2>/dev/null; then
-  if [[ ${REGISTRY%/} != "${FALLBACK_REGISTRY%/}" ]]; then
+  if [[ ${REGISTRY%/} != "${FALLBACK_REGISTRY%/}" && $NO_FALLBACK != 1 ]]; then
     echo "Download from configured registry failed, trying fallback registry..."
     download_and_extract "$FALLBACK_REGISTRY"
   else
     echo "Download from registry failed."
+    [[ $NO_FALLBACK == 1 ]] && echo "Not trying ${FALLBACK_REGISTRY} (ASDF_PNPM_NO_FALLBACK=1)."
     exit 1
   fi
 fi

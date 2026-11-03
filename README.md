@@ -45,7 +45,9 @@ it (`npm view` / `npm pack`), so `.npmrc` authentication (`_authToken`,
 including `${ENV_VAR}` placeholders), custom CAs and proxies apply — private
 registries that reject anonymous requests (Artifactory, AWS CodeArtifact, …)
 work. Without `npm`, or if npm fails, the plugin falls back to `curl` against
-the configured registry and then `https://registry.npmjs.org/`.
+the configured registry and then `https://registry.npmjs.org/`. Set
+`ASDF_PNPM_NO_FALLBACK=1` to never use the public registry, so a version your
+registry doesn't have fails to install instead of bypassing it.
 
 ## Testing
 

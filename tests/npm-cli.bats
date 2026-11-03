@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# shellcheck disable=SC2016 # stub bodies are single-quoted on purpose
+# shellcheck disable=SC2016,SC2030,SC2031 # stub bodies are single-quoted on purpose; bats runs each test in its own subshell
 
 # list-all and download must go through the npm CLI when it is available, so
 # registries that reject anonymous requests (an .npmrc `_authToken`, e.g.
@@ -65,4 +65,35 @@ esac'
   run "${PLUGIN_DIR}/bin/download"
   [ "$status" -eq 0 ]
   grep -q '"version":"9.9.9"' "${ASDF_DOWNLOAD_PATH}/package.json"
+}
+
+@test "download with ASDF_PNPM_NO_FALLBACK=1 never contacts the public registry" {
+  stub npm 'case "$1" in
+  config) echo "https://registry.invalid/" ;;
+  *) echo "npm error code E404" >&2; exit 1 ;;
+esac'
+  stub curl 'echo "$*" >>"${BATS_TEST_TMPDIR}/curl.log"; printf 404'
+
+  export ASDF_PNPM_NO_FALLBACK=1
+  export ASDF_INSTALL_VERSION=9.9.9
+  export ASDF_DOWNLOAD_PATH="${BATS_TEST_TMPDIR}/download"
+  run "${PLUGIN_DIR}/bin/download"
+  [ "$status" -ne 0 ]
+  [[ $output == *"E404"* ]]
+  run grep -q registry.npmjs.org "${BATS_TEST_TMPDIR}/curl.log"
+  [ "$status" -ne 0 ]
+}
+
+@test "list-all with ASDF_PNPM_NO_FALLBACK=1 never contacts the public registry" {
+  stub npm 'case "$1" in
+  config) echo "https://registry.invalid/" ;;
+  *) echo "npm error code E401" >&2; exit 1 ;;
+esac'
+  stub curl 'echo "$*" >>"${BATS_TEST_TMPDIR}/curl.log"; echo "curl: (22) 401" >&2; exit 22'
+
+  export ASDF_PNPM_NO_FALLBACK=1
+  run "${PLUGIN_DIR}/bin/list-all"
+  [ "$status" -ne 0 ]
+  run grep -q registry.npmjs.org "${BATS_TEST_TMPDIR}/curl.log"
+  [ "$status" -ne 0 ]
 }

@@ -51,7 +51,8 @@ fetch_versions() {
 if command -v npm 1>/dev/null && fetch_versions_npm; then
   exit 0
 fi
-if [[ ${REGISTRY%/} == "${FALLBACK_REGISTRY%/}" ]]; then
+# ASDF_PNPM_NO_FALLBACK=1: list only what the configured registry has.
+if [[ ${REGISTRY%/} == "${FALLBACK_REGISTRY%/}" || ${ASDF_PNPM_NO_FALLBACK:-0} == 1 ]]; then
   fetch_versions "$REGISTRY"
 else
   fetch_versions "$REGISTRY" || fetch_versions "$FALLBACK_REGISTRY"
