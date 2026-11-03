@@ -57,6 +57,51 @@ download_and_extract_npm() {
   fi
   tar xzf "${tmpdir}/$(echo "$tarball" | tail -1)" --strip-components=1 --no-same-owner -C "${ASDF_DOWNLOAD_PATH}"
   rm -rf "$tmpdir"
+  download_platform_binary_npm
+}
+
+# The npm name of this host's native pnpm binary package, e.g. @pnpm/exe.darwin-arm64.
+platform_package() {
+  local os arch name
+  case "$(uname -s)" in
+  Darwin) os=darwin ;;
+  Linux) os=linux ;;
+  *) return 1 ;;
+  esac
+  case "$(uname -m)" in
+  arm64 | aarch64) arch=arm64 ;;
+  x86_64 | amd64) arch=x64 ;;
+  *) return 1 ;;
+  esac
+  name="@pnpm/exe.${os}-${arch}"
+  if [[ $os == linux ]] && ldd --version 2>&1 | grep -qi musl; then
+    name+="-musl"
+  fi
+  echo "$name"
+}
+
+# pnpm 11+ is a thin wrapper around a native binary that ships as a
+# per-platform optional dependency. `npm install` would put it in the wrapper's
+# node_modules; `npm pack` doesn't, and the wrapper's first-run download
+# refuses packages without npm registry signatures, which mirrors such as
+# CodeArtifact don't carry. So fetch it the way `npm install` would. If that
+# fails, pnpm still tries its own download on first run.
+download_platform_binary_npm() {
+  local pkg tmpdir tarball dest
+  pkg=$(platform_package) || return 0
+  # Only versions that ship a native binary list it as an optional dependency.
+  grep -q "\"${pkg}\"" "${ASDF_DOWNLOAD_PATH}/package.json" || return 0
+  dest="${ASDF_DOWNLOAD_PATH}/node_modules/${pkg}"
+  tmpdir=$(mktemp -d)
+  echo "Downloading ${pkg}@${ASDF_INSTALL_VERSION} via npm pack"
+  if ! tarball=$(npm pack "${pkg}@${ASDF_INSTALL_VERSION}" --pack-destination "$tmpdir" --loglevel=error 2>&1); then
+    echo >&2 "⚠️ npm pack ${pkg} failed, so pnpm will download it on first run: $(echo "$tarball" | head -2)"
+    rm -rf "$tmpdir"
+    return 0
+  fi
+  mkdir -p "$dest"
+  tar xzf "${tmpdir}/$(echo "$tarball" | tail -1)" --strip-components=1 --no-same-owner -C "$dest"
+  rm -rf "$tmpdir"
 }
 
 if command -v npm 1>/dev/null && download_and_extract_npm; then

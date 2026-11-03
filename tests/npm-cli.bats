@@ -97,3 +97,34 @@ esac'
   run grep -q registry.npmjs.org "${BATS_TEST_TMPDIR}/curl.log"
   [ "$status" -ne 0 ]
 }
+
+@test "download adds the host's native binary package, as npm install would" {
+  stub uname 'case "$1" in -s) echo Darwin ;; -m) echo arm64 ;; esac'
+  stub npm 'case "$1" in
+  config) echo "https://registry.invalid/" ;;
+  pack)
+    for arg; do [[ ${prev:-} == --pack-destination ]] && dest=$arg; prev=$arg; done
+    spec=$2 name=${2%@*} version=${2##*@}
+    work=$(mktemp -d)
+    mkdir -p "${work}/package"
+    if [[ $name == pnpm ]]; then
+      echo "{\"name\":\"pnpm\",\"version\":\"${version}\",\"optionalDependencies\":{\"@pnpm/exe.darwin-arm64\":\"${version}\",\"@pnpm/exe.linux-x64\":\"${version}\"}}" >"${work}/package/package.json"
+    else
+      echo "{\"name\":\"${name}\",\"version\":\"${version}\"}" >"${work}/package/package.json"
+      printf "#!/bin/sh\n" >"${work}/package/pnpm" && chmod 755 "${work}/package/pnpm"
+    fi
+    file=$(echo "${name}-${version}.tgz" | tr -d @ | tr / -)
+    tar czf "${dest}/${file}" -C "$work" package
+    echo "$file"
+    ;;
+  *) exit 1 ;;
+esac'
+  stub curl 'echo "curl must not be called" >&2; exit 99'
+
+  export ASDF_INSTALL_VERSION=12.0.0
+  export ASDF_DOWNLOAD_PATH="${BATS_TEST_TMPDIR}/download"
+  run "${PLUGIN_DIR}/bin/download"
+  [ "$status" -eq 0 ]
+  [ -x "${ASDF_DOWNLOAD_PATH}/node_modules/@pnpm/exe.darwin-arm64/pnpm" ]
+  [ ! -e "${ASDF_DOWNLOAD_PATH}/node_modules/@pnpm/exe.linux-x64" ]
+}
