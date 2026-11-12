@@ -98,8 +98,9 @@ esac'
   [ "$status" -ne 0 ]
 }
 
-@test "download adds the host's native binary package, as npm install would" {
-  stub uname 'case "$1" in -s) echo Darwin ;; -m) echo arm64 ;; esac'
+# stub_npm_pack: an npm whose `pack` builds pnpm (listing native binary
+# packages as optional dependencies) or a native binary package.
+stub_npm_pack() {
   stub npm 'case "$1" in
   config) echo "https://registry.invalid/" ;;
   pack)
@@ -108,7 +109,7 @@ esac'
     work=$(mktemp -d)
     mkdir -p "${work}/package"
     if [[ $name == pnpm ]]; then
-      echo "{\"name\":\"pnpm\",\"version\":\"${version}\",\"optionalDependencies\":{\"@pnpm/exe.darwin-arm64\":\"${version}\",\"@pnpm/exe.linux-x64\":\"${version}\"}}" >"${work}/package/package.json"
+      echo "{\"name\":\"pnpm\",\"version\":\"${version}\",\"optionalDependencies\":{\"@pnpm/exe.darwin-arm64\":\"${version}\",\"@pnpm/exe.linux-x64\":\"${version}\",\"@pnpm/exe.linux-x64-musl\":\"${version}\"}}" >"${work}/package/package.json"
     else
       echo "{\"name\":\"${name}\",\"version\":\"${version}\"}" >"${work}/package/package.json"
       printf "#!/bin/sh\n" >"${work}/package/pnpm" && chmod 755 "${work}/package/pnpm"
@@ -120,6 +121,11 @@ esac'
   *) exit 1 ;;
 esac'
   stub curl 'echo "curl must not be called" >&2; exit 99'
+}
+
+@test "download adds the host's native binary package, as npm install would" {
+  stub uname 'case "$1" in -s) echo Darwin ;; -m) echo arm64 ;; esac'
+  stub_npm_pack
 
   export ASDF_INSTALL_VERSION=12.0.0
   export ASDF_DOWNLOAD_PATH="${BATS_TEST_TMPDIR}/download"
@@ -128,3 +134,17 @@ esac'
   [ -x "${ASDF_DOWNLOAD_PATH}/node_modules/@pnpm/exe.darwin-arm64/pnpm" ]
   [ ! -e "${ASDF_DOWNLOAD_PATH}/node_modules/@pnpm/exe.linux-x64" ]
 }
+
+@test "download picks the musl native binary on musl Linux, whose ldd --version exits 1" {
+  stub uname 'case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac'
+  stub ldd 'echo "musl libc (x86_64)" >&2; exit 1'
+  stub_npm_pack
+
+  export ASDF_INSTALL_VERSION=12.0.0
+  export ASDF_DOWNLOAD_PATH="${BATS_TEST_TMPDIR}/download"
+  run "${PLUGIN_DIR}/bin/download"
+  [ "$status" -eq 0 ]
+  [ -x "${ASDF_DOWNLOAD_PATH}/node_modules/@pnpm/exe.linux-x64-musl/pnpm" ]
+  [ ! -e "${ASDF_DOWNLOAD_PATH}/node_modules/@pnpm/exe.linux-x64" ]
+}
+

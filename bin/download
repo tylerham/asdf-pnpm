@@ -74,7 +74,8 @@ platform_package() {
   *) return 1 ;;
   esac
   name="@pnpm/exe.${os}-${arch}"
-  if [[ $os == linux ]] && ldd --version 2>&1 | grep -qi musl; then
+  # musl's `ldd --version` prints its banner but exits 1, so ignore its status.
+  if [[ $os == linux ]] && { ldd --version 2>&1 || true; } | grep -qi musl; then
     name+="-musl"
   fi
   echo "$name"
