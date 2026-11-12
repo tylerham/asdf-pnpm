@@ -55,7 +55,12 @@ download_and_extract_npm() {
     rm -rf "$tmpdir"
     return 1
   fi
-  tar xzf "${tmpdir}/$(echo "$tarball" | tail -1)" --strip-components=1 --no-same-owner -C "${ASDF_DOWNLOAD_PATH}"
+  # Check tar explicitly: this runs inside an `if`, where set -e is off.
+  if ! tar xzf "${tmpdir}/$(echo "$tarball" | tail -1)" --strip-components=1 --no-same-owner -C "${ASDF_DOWNLOAD_PATH}"; then
+    echo >&2 "⛔ Could not extract the pnpm tarball from npm pack"
+    rm -rf "$tmpdir"
+    return 1
+  fi
   rm -rf "$tmpdir"
   download_platform_binary_npm
 }
@@ -101,7 +106,10 @@ download_platform_binary_npm() {
     return 0
   fi
   mkdir -p "$dest"
-  tar xzf "${tmpdir}/$(echo "$tarball" | tail -1)" --strip-components=1 --no-same-owner -C "$dest"
+  if ! tar xzf "${tmpdir}/$(echo "$tarball" | tail -1)" --strip-components=1 --no-same-owner -C "$dest"; then
+    echo >&2 "⚠️ Could not extract ${pkg}, so pnpm will download it on first run"
+    rm -rf "$dest"
+  fi
   rm -rf "$tmpdir"
 }
 

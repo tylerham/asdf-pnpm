@@ -148,3 +148,22 @@ esac'
   [ ! -e "${ASDF_DOWNLOAD_PATH}/node_modules/@pnpm/exe.linux-x64" ]
 }
 
+@test "download fails, rather than reporting success, when the npm pack tarball won't extract" {
+  stub npm 'case "$1" in
+  config) echo "https://registry.invalid/" ;;
+  pack)
+    for arg; do [[ ${prev:-} == --pack-destination ]] && dest=$arg; prev=$arg; done
+    echo "not a tarball" >"${dest}/pnpm-9.9.9.tgz"
+    echo "pnpm-9.9.9.tgz"
+    ;;
+  *) exit 1 ;;
+esac'
+  stub curl 'printf 404'
+
+  export ASDF_PNPM_NO_FALLBACK=1
+  export ASDF_INSTALL_VERSION=9.9.9
+  export ASDF_DOWNLOAD_PATH="${BATS_TEST_TMPDIR}/download"
+  run "${PLUGIN_DIR}/bin/download"
+  [ "$status" -ne 0 ]
+  [[ $output == *"Could not extract the pnpm tarball"* ]]
+}
