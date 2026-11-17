@@ -44,24 +44,27 @@ download_and_extract() {
   rm -f "$tmpfile"
 }
 
-# `npm pack` fetches the tarball with npm's own auth/CA/proxy handling, so it
-# works against registries that reject anonymous requests (HTTP 401).
-download_and_extract_npm() {
-  local tmpdir tarball
+# npm_pack_extract SPEC DEST: fetch SPEC with `npm pack`, which uses npm's own
+# auth/CA/proxy handling (so registries that reject anonymous requests work),
+# and unpack it into DEST. Checks every step: callers run inside an `if`, where
+# set -e is off.
+npm_pack_extract() {
+  local tmpdir err rc=0
   tmpdir=$(mktemp -d)
-  echo "Downloading pnpm v${ASDF_INSTALL_VERSION} via npm pack (registry ${REGISTRY})"
-  if ! tarball=$(npm pack "pnpm@${ASDF_INSTALL_VERSION}" --pack-destination "$tmpdir" --loglevel=error 2>&1); then
-    echo >&2 "⛔ npm pack failed: $(echo "$tarball" | head -2)"
-    rm -rf "$tmpdir"
-    return 1
-  fi
-  # Check tar explicitly: this runs inside an `if`, where set -e is off.
-  if ! tar xzf "${tmpdir}/$(echo "$tarball" | tail -1)" --strip-components=1 --no-same-owner -C "${ASDF_DOWNLOAD_PATH}"; then
-    echo >&2 "⛔ Could not extract the pnpm tarball from npm pack"
-    rm -rf "$tmpdir"
-    return 1
+  if ! err=$(npm pack "$1" --pack-destination "$tmpdir" --loglevel=error 2>&1 >/dev/null); then
+    echo >&2 "⛔ npm pack $1 failed: $(echo "$err" | head -2)"
+    rc=1
+  elif ! mkdir -p "$2" || ! tar xzf "$tmpdir"/*.tgz --strip-components=1 --no-same-owner -C "$2"; then
+    echo >&2 "⛔ Could not extract $1 from npm pack"
+    rc=1
   fi
   rm -rf "$tmpdir"
+  return "$rc"
+}
+
+download_and_extract_npm() {
+  echo "Downloading pnpm v${ASDF_INSTALL_VERSION} via npm pack (registry ${REGISTRY})"
+  npm_pack_extract "pnpm@${ASDF_INSTALL_VERSION}" "${ASDF_DOWNLOAD_PATH}" || return 1
   download_platform_binary_npm
 }
 
@@ -90,27 +93,16 @@ platform_package() {
 # per-platform optional dependency. `npm install` would put it in the wrapper's
 # node_modules; `npm pack` doesn't, and the wrapper's first-run download
 # refuses packages without npm registry signatures, which mirrors such as
-# CodeArtifact don't carry. So fetch it the way `npm install` would. If that
-# fails, pnpm still tries its own download on first run.
+# CodeArtifact don't carry. So fetch it the way `npm install` would, and stop
+# the install if that fails: the curl fallback below fetches only the wrapper,
+# which would leave a pnpm that can't start.
 download_platform_binary_npm() {
-  local pkg tmpdir tarball dest
+  local pkg
   pkg=$(platform_package) || return 0
   # Only versions that ship a native binary list it as an optional dependency.
   grep -q "\"${pkg}\"" "${ASDF_DOWNLOAD_PATH}/package.json" || return 0
-  dest="${ASDF_DOWNLOAD_PATH}/node_modules/${pkg}"
-  tmpdir=$(mktemp -d)
   echo "Downloading ${pkg}@${ASDF_INSTALL_VERSION} via npm pack"
-  if ! tarball=$(npm pack "${pkg}@${ASDF_INSTALL_VERSION}" --pack-destination "$tmpdir" --loglevel=error 2>&1); then
-    echo >&2 "⚠️ npm pack ${pkg} failed, so pnpm will download it on first run: $(echo "$tarball" | head -2)"
-    rm -rf "$tmpdir"
-    return 0
-  fi
-  mkdir -p "$dest"
-  if ! tar xzf "${tmpdir}/$(echo "$tarball" | tail -1)" --strip-components=1 --no-same-owner -C "$dest"; then
-    echo >&2 "⚠️ Could not extract ${pkg}, so pnpm will download it on first run"
-    rm -rf "$dest"
-  fi
-  rm -rf "$tmpdir"
+  npm_pack_extract "${pkg}@${ASDF_INSTALL_VERSION}" "${ASDF_DOWNLOAD_PATH}/node_modules/${pkg}" || exit 1
 }
 
 if command -v npm 1>/dev/null && download_and_extract_npm; then

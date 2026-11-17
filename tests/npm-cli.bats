@@ -165,5 +165,19 @@ esac'
   export ASDF_DOWNLOAD_PATH="${BATS_TEST_TMPDIR}/download"
   run "${PLUGIN_DIR}/bin/download"
   [ "$status" -ne 0 ]
-  [[ $output == *"Could not extract the pnpm tarball"* ]]
+  [[ $output == *"Could not extract pnpm@9.9.9"* ]]
+}
+
+@test "download fails when the native binary package can't be fetched, rather than leave pnpm unable to start" {
+  stub uname 'case "$1" in -s) echo Darwin ;; -m) echo arm64 ;; esac'
+  stub_npm_pack
+  # Same npm, but packing the native binary package fails.
+  mv "${STUB_DIR}/npm" "${STUB_DIR}/npm-real"
+  stub npm '[[ $1 == pack && $2 == @pnpm/exe.* ]] && { echo "npm error code E404" >&2; exit 1; }; exec "$(dirname "$0")/npm-real" "$@"'
+
+  export ASDF_INSTALL_VERSION=12.0.0
+  export ASDF_DOWNLOAD_PATH="${BATS_TEST_TMPDIR}/download"
+  run "${PLUGIN_DIR}/bin/download"
+  [ "$status" -ne 0 ]
+  [[ $output == *"@pnpm/exe.darwin-arm64"*"E404"* ]]
 }
